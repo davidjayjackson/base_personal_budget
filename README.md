@@ -105,3 +105,5 @@ in the **Reports** pane were generated with Base's Report Wizard on those
 queries (Report Builder reports can't be created reliably via UNO — the
 engine crashes; the wizard is stable). After creating reports in Base, you
 must **save the main database window** (Ctrl+S) for them to persist.
+
+![The four finished reports in the LibreOffice Base Reports pane](docs/reports.png)
