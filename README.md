@@ -5,7 +5,7 @@ Objective: Build a personal budget management application using LibreOffice Base
 
 Grab the ready-to-use database from the latest release — no cloning or building required:
 
-**[⬇ Download budget.odb (v1.0.0)](https://github.com/davidjayjackson/base_personal_budget/releases/download/v1.0.0/budget.odb)** · [all releases](https://github.com/davidjayjackson/base_personal_budget/releases/latest)
+**[⬇ Download budget.odb (latest)](https://github.com/davidjayjackson/base_personal_budget/releases/latest/download/budget.odb)** · [all releases](https://github.com/davidjayjackson/base_personal_budget/releases/latest)
 
 Open it in LibreOffice Base (6.1+, embedded Firebird) to use the tables, forms, and reports.
 
