@@ -51,3 +51,48 @@ Technical Notes for Implementation
 Build tables via .odb HSQLDB/Firebird embedded engine (LibreOffice Base default)
 Consider scripting table/form/report creation via the LibreOffice UNO API (Python) for reproducibility, since Base GUI work isn't easily version-controlled
 Keep personal_budget.ods as the single source of truth for schema design — update it first, then regenerate/adjust the .odb tables to match
+
+---
+
+## Build & Regenerate (implemented)
+
+`budget.odb` uses the embedded **Firebird** engine and is generated
+reproducibly by the scripts in `scripts/`. Run each with LibreOffice's
+bundled Python (it ships the `uno` module); close any interactive
+LibreOffice first so the file isn't locked:
+
+    "C:\Program Files\LibreOffice\program\python.exe" scripts\build_odb.py      # tables + seed data
+    "C:\Program Files\LibreOffice\program\python.exe" scripts\build_reports.py  # report queries
+    "C:\Program Files\LibreOffice\program\python.exe" scripts\build_forms.py    # data-entry forms
+
+    "C:\Program Files\LibreOffice\program\python.exe" scripts\verify_odb.py     # tables/FK/CHECK checks
+    "C:\Program Files\LibreOffice\program\python.exe" scripts\verify_forms.py   # form structure checks
+
+Each build script spawns its own headless `soffice` on a private socket +
+profile, so it won't disturb an interactive session.
+
+### Tables
+Accounts, Categories, Transactions, Budgets, RecurringTransactions — with
+primary keys, the six foreign keys listed above, and CHECK constraints on
+account type, category kind, transaction type and recurrence frequency.
+
+### Forms (`build_forms.py`)
+Each is an embedded form document with a data grid (add/edit/delete):
+
+| Form               | Table                  | Notes                          |
+| ------------------ | ---------------------- | ------------------------------ |
+| `TransactionEntry` | Transactions           | Account + Category dropdowns   |
+| `Accounts`         | Accounts               |                                |
+| `Categories`       | Categories             | Parent-category dropdown       |
+| `RecurringSetup`   | RecurringTransactions  | Account + Category dropdowns   |
+
+### Reports (`build_reports.py`)
+Saved queries (the data sources Base reports sit on), viewable directly
+under **Queries** in Base:
+
+| Query                   | Report                          |
+| ----------------------- | ------------------------------- |
+| `RptMonthlySpending`    | Monthly spending by category    |
+| `RptBudgetVsActual`     | Budget vs. actual spending      |
+| `RptAccountBalances`    | Account balance summary         |
+| `RptIncomeExpenseTrend` | Income vs. expense trend        |
