@@ -86,13 +86,22 @@ Each is an embedded form document with a data grid (add/edit/delete):
 | `Categories`       | Categories             | Parent-category dropdown       |
 | `RecurringSetup`   | RecurringTransactions  | Account + Category dropdowns   |
 
-### Reports (`build_reports.py`)
-Saved queries (the data sources Base reports sit on), viewable directly
-under **Queries** in Base:
+### Reports (`build_reports.py` + Report Wizard)
+The analytics live in Firebird **views**; each saved query is a thin
+`SELECT * FROM <view>` wrapper. This matters: the Report Builder engine
+re-processes a report's source SQL and errors on advanced SQL
+(EXTRACT/CASE/COALESCE), so the views hide that complexity and the report
+engine only ever sees a plain select.
 
-| Query                   | Report                          |
-| ----------------------- | ------------------------------- |
-| `RptMonthlySpending`    | Monthly spending by category    |
-| `RptBudgetVsActual`     | Budget vs. actual spending      |
-| `RptAccountBalances`    | Account balance summary         |
-| `RptIncomeExpenseTrend` | Income vs. expense trend        |
+| View / Query            | Report (Reports pane)   | Content                       |
+| ----------------------- | ----------------------- | ----------------------------- |
+| `RPT_MONTHLY_SPENDING`  | `RptMonthlySpending`    | Monthly spending by category  |
+| `RPT_BUDGET_VS_ACTUAL`  | `RptBudgetVsActual`     | Budget vs. actual spending    |
+| `RPT_ACCOUNT_BALANCES`  | `RptAccountBalances`    | Account balance summary       |
+| `RPT_INCOME_EXPENSE_TREND` | `RptIncomeExpenseTrend` | Income vs. expense trend   |
+
+The queries are viewable directly under **Queries**. The finished reports
+in the **Reports** pane were generated with Base's Report Wizard on those
+queries (Report Builder reports can't be created reliably via UNO — the
+engine crashes; the wizard is stable). After creating reports in Base, you
+must **save the main database window** (Ctrl+S) for them to persist.

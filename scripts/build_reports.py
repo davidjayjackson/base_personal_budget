@@ -1,19 +1,25 @@
 #!/usr/bin/env python
-"""build_reports.py - add the analytical report queries to budget.odb.
+"""build_reports.py - add the analytical report views + queries to budget.odb.
 
-Base reports are built on top of queries; these saved queries are the report
-data sources (and are directly viewable under "Queries" in Base):
+The LibreOffice Report Builder engine (Pentaho/jfreereport) re-processes a
+report's source SQL and chokes on advanced Firebird SQL (EXTRACT/CASE/COALESCE)
+with "Syntax error in SQL statement" -- regardless of the query's
+escape-processing flag. So the analytics live in database **views** (validated
+once by Firebird at creation), and each saved query is a trivial
+`SELECT * FROM <view>` that no engine can mangle. Reports built on these
+queries execute cleanly.
 
     RptMonthlySpending     - monthly spending by category (expenses)
     RptBudgetVsActual      - planned vs. actual spend per category/month
     RptAccountBalances     - account balance summary (starting + net activity)
     RptIncomeExpenseTrend  - income vs. expense trend by month
 
-Run with LibreOffice's bundled Python (needs the `uno` module):
+Run with LibreOffice's bundled Python (needs the `uno` module); close Base
+first so the .odb isn't locked:
 
     "C:\\Program Files\\LibreOffice\\program\\python.exe" scripts\\build_reports.py
 
-Re-running replaces any queries of the same name.
+Re-running replaces the views and queries.
 """
 import os
 import sys
@@ -30,28 +36,31 @@ def log(msg):
     sys.stderr.flush()
 
 
-# Firebird dialect. Quoted lowercase identifiers ("date","type","month")
-# keep their case; everything else is folded to upper-case.
-QUERIES = {
-    "RptMonthlySpending": """
-        SELECT EXTRACT(YEAR  FROM t."date") AS "Year",
-               EXTRACT(MONTH FROM t."date") AS "Month",
-               c.name                       AS "Category",
-               SUM(t.amount)                AS "Spent"
+# Views hold all the complex SQL. Column names avoid Firebird reserved words
+# (YEAR/MONTH/TYPE) so they need no quoting downstream. Quoted lowercase
+# identifiers ("date","type","month") are the table columns.
+VIEWS = {
+    "RPT_MONTHLY_SPENDING": """
+        CREATE OR ALTER VIEW RPT_MONTHLY_SPENDING (YR, MO, CATEGORY, SPENT) AS
+        SELECT EXTRACT(YEAR  FROM t."date"),
+               EXTRACT(MONTH FROM t."date"),
+               c.name,
+               SUM(t.amount)
         FROM   transactions t
                JOIN categories c ON t.category_id = c.id
         WHERE  t."type" = 'Expense'
         GROUP  BY EXTRACT(YEAR FROM t."date"),
                   EXTRACT(MONTH FROM t."date"),
                   c.name
-        ORDER  BY 1, 2, 4 DESC
     """,
-    "RptBudgetVsActual": """
-        SELECT c.name            AS "Category",
-               b."month"         AS "BudgetMonth",
-               b.planned_amount  AS "Planned",
-               COALESCE(SUM(t.amount), 0)                    AS "Actual",
-               b.planned_amount - COALESCE(SUM(t.amount), 0) AS "Remaining"
+    "RPT_BUDGET_VS_ACTUAL": """
+        CREATE OR ALTER VIEW RPT_BUDGET_VS_ACTUAL
+            (CATEGORY, BUDGET_MONTH, PLANNED, ACTUAL, REMAINING) AS
+        SELECT c.name,
+               b."month",
+               b.planned_amount,
+               COALESCE(SUM(t.amount), 0),
+               b.planned_amount - COALESCE(SUM(t.amount), 0)
         FROM   budgets b
                JOIN categories c ON b.category_id = c.id
                LEFT JOIN transactions t
@@ -60,35 +69,43 @@ QUERIES = {
                      AND EXTRACT(YEAR  FROM t."date") = EXTRACT(YEAR  FROM b."month")
                      AND EXTRACT(MONTH FROM t."date") = EXTRACT(MONTH FROM b."month")
         GROUP  BY c.name, b."month", b.planned_amount
-        ORDER  BY b."month", c.name
     """,
-    "RptAccountBalances": """
-        SELECT a.name             AS "Account",
-               a."type"           AS "Type",
-               a.starting_balance AS "StartingBalance",
+    "RPT_ACCOUNT_BALANCES": """
+        CREATE OR ALTER VIEW RPT_ACCOUNT_BALANCES
+            (ACCOUNT, ACCT_TYPE, STARTING_BALANCE, NET_ACTIVITY, CURRENT_BALANCE) AS
+        SELECT a.name,
+               a."type",
+               a.starting_balance,
                COALESCE(SUM(CASE WHEN t."type" = 'Income'  THEN  t.amount
                                  WHEN t."type" = 'Expense' THEN -t.amount
-                                 ELSE 0 END), 0)                        AS "NetActivity",
+                                 ELSE 0 END), 0),
                a.starting_balance
                  + COALESCE(SUM(CASE WHEN t."type" = 'Income'  THEN  t.amount
                                      WHEN t."type" = 'Expense' THEN -t.amount
-                                     ELSE 0 END), 0)                    AS "CurrentBalance"
+                                     ELSE 0 END), 0)
         FROM   accounts a
                LEFT JOIN transactions t ON t.account_id = a.id
         GROUP  BY a.name, a."type", a.starting_balance
-        ORDER  BY a.name
     """,
-    "RptIncomeExpenseTrend": """
-        SELECT EXTRACT(YEAR  FROM t."date") AS "Year",
-               EXTRACT(MONTH FROM t."date") AS "Month",
-               SUM(CASE WHEN t."type" = 'Income'  THEN t.amount ELSE 0 END) AS "Income",
-               SUM(CASE WHEN t."type" = 'Expense' THEN t.amount ELSE 0 END) AS "Expense",
+    "RPT_INCOME_EXPENSE_TREND": """
+        CREATE OR ALTER VIEW RPT_INCOME_EXPENSE_TREND (YR, MO, INCOME, EXPENSE, NET) AS
+        SELECT EXTRACT(YEAR  FROM t."date"),
+               EXTRACT(MONTH FROM t."date"),
+               SUM(CASE WHEN t."type" = 'Income'  THEN t.amount ELSE 0 END),
+               SUM(CASE WHEN t."type" = 'Expense' THEN t.amount ELSE 0 END),
                SUM(CASE WHEN t."type" = 'Income'  THEN t.amount ELSE 0 END)
-                 - SUM(CASE WHEN t."type" = 'Expense' THEN t.amount ELSE 0 END) AS "Net"
+                 - SUM(CASE WHEN t."type" = 'Expense' THEN t.amount ELSE 0 END)
         FROM   transactions t
         GROUP  BY EXTRACT(YEAR FROM t."date"), EXTRACT(MONTH FROM t."date")
-        ORDER  BY 1, 2
     """,
+}
+
+# Saved queries are thin wrappers so the report engine sees only a plain select.
+QUERIES = {
+    "RptMonthlySpending":    "SELECT * FROM RPT_MONTHLY_SPENDING",
+    "RptBudgetVsActual":     "SELECT * FROM RPT_BUDGET_VS_ACTUAL",
+    "RptAccountBalances":    "SELECT * FROM RPT_ACCOUNT_BALANCES",
+    "RptIncomeExpenseTrend": "SELECT * FROM RPT_INCOME_EXPENSE_TREND",
 }
 
 
@@ -125,25 +142,31 @@ def main():
         data_source = db_context.getByName(odb_url)
         db_doc = data_source.DatabaseDocument
 
+        conn = data_source.getConnection("", "")
+        stmt = conn.createStatement()
+
+        # 1) Create/refresh the views in the embedded Firebird database.
+        for name, ddl in VIEWS.items():
+            stmt.execute(" ".join(ddl.split()))
+            log("view %s created" % name)
+
+        # 2) Create/refresh the wrapper queries (run SQL directly).
         queries = data_source.getQueryDefinitions()
         for name, sql in QUERIES.items():
-            clean = " ".join(sql.split())
             if queries.hasByName(name):
                 queries.removeByName(name)
             qd = smgr.createInstance("com.sun.star.sdb.QueryDefinition")
-            qd.setPropertyValue("Command", clean)
-            qd.setPropertyValue("EscapeProcessing", True)
+            qd.setPropertyValue("Command", sql)
+            qd.setPropertyValue("EscapeProcessing", False)
             queries.insertByName(name, qd)
             log("query %s added" % name)
 
         db_doc.store()
         log("stored")
 
-        # Prove each query executes and report row counts.
-        conn = data_source.getConnection("", "")
-        stmt = conn.createStatement()
-        print("== Report queries ==")
-        for name, sql in QUERIES.items():
+        # 3) Prove each query executes and report row counts.
+        print("== Report views/queries ==")
+        for name in QUERIES:
             rs = stmt.executeQuery("SELECT COUNT(*) FROM \"%s\"" % name)
             rs.next()
             print("  %-22s %d rows" % (name, rs.getInt(1)))
